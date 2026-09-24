@@ -50,6 +50,9 @@ jobs:
         uses: 'softprops/action-gh-release@v2'
         with:
           tag_name: 'personal-${{ steps.package.outputs.NAME }}'
+          # Pin the tag to the dispatched commit instead of the default branch, so the release
+          # source actually matches the APK that was built.
+          target_commitish: ${{ github.sha }}
           name: 'Wallhavender personal build ${{ steps.package.outputs.NAME }}'
           body: |
             Personal build of Wallhavender, signed with the personal release key.
