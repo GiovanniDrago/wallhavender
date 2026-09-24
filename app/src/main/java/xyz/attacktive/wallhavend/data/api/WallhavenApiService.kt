@@ -1,6 +1,7 @@
 package xyz.attacktive.wallhavend.data.api
 
 import retrofit2.http.GET
+import retrofit2.http.Header
 import retrofit2.http.Query
 import xyz.attacktive.wallhavend.data.api.dto.WallhavenSearchResponseDto
 
@@ -17,6 +18,7 @@ interface WallhavenApiService {
 		@Query("topRange") topRange: String?,
 		@Query("page") page: Int?,
 		@Query("colors") colors: String?,
-		@Query("apikey") apiKey: String?
+		// Sent as a header so the key never lands in the URL, where HTTP logs would show it.
+		@Header("X-API-Key") apiKey: String?
 	): WallhavenSearchResponseDto
 }

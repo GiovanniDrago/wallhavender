@@ -15,6 +15,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -37,13 +38,13 @@ class SettingsRepositoryTest {
 
 	private fun wallhaven(id: String) = WallpaperIdentity(WallpaperSource.WALLHAVEN, id)
 
-	private fun TestScope.createRepository(): SettingsRepository {
+	private fun TestScope.createRepository(apiKeyStore: FakeApiKeyStore = FakeApiKeyStore()): SettingsRepository {
 		val dataStore = PreferenceDataStoreFactory.create(
 			scope = backgroundScope,
 			produceFile = { tmpFolder.newFile("test_prefs.preferences_pb") }
 		)
 
-		return SettingsRepository(dataStore, FakeAppLogger())
+		return SettingsRepository(dataStore, apiKeyStore, FakeAppLogger())
 	}
 
 	@Test
@@ -72,7 +73,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[stringPreferencesKey("search_query")] = "mountains" }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(setOf(WallpaperSource.WALLHAVEN), repository.settings.first().enabledSources)
 	}
@@ -99,7 +100,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[stringSetPreferencesKey("enabled_sources")] = setOf("someday") }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(setOf(WallpaperSource.WALLHAVEN), repository.settings.first().enabledSources)
 	}
@@ -115,7 +116,7 @@ class SettingsRepositoryTest {
 			prefs[booleanPreferencesKey("unmetered_only")] = false
 		}
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(RotationMode.FRESH_WIFI, repository.settings.first().rotationMode)
 	}
@@ -129,7 +130,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[intPreferencesKey("pool_size")] = 0 }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(1, repository.settings.first().poolSize)
 	}
@@ -159,6 +160,48 @@ class SettingsRepositoryTest {
 	}
 
 	@Test
+	fun `save keeps the key out of the settings datastore`() = runTest {
+		val dataStore = PreferenceDataStoreFactory.create(
+			scope = backgroundScope,
+			produceFile = { tmpFolder.newFile("secure_save.preferences_pb") }
+		)
+		val apiKeyStore = FakeApiKeyStore()
+		val repository = SettingsRepository(dataStore, apiKeyStore, FakeAppLogger())
+
+		repository.save(AppSettings(searchQuery = "marker", apiKey = "secret"))
+
+		assertEquals("secret", apiKeyStore.apiKey.value)
+		assertNull(dataStore.data.first()[stringPreferencesKey("api_key")])
+	}
+
+	@Test
+	fun `a legacy plaintext key migrates into the encrypted store and leaves the datastore`() = runTest {
+		val dataStore = PreferenceDataStoreFactory.create(
+			scope = backgroundScope,
+			produceFile = { tmpFolder.newFile("migrate_key.preferences_pb") }
+		)
+		dataStore.edit { prefs -> prefs[stringPreferencesKey("api_key")] = "legacy-secret" }
+		val apiKeyStore = FakeApiKeyStore()
+
+		val repository = SettingsRepository(dataStore, apiKeyStore, FakeAppLogger())
+		val settings = repository.settings.first()
+
+		assertEquals("legacy-secret", settings.apiKey)
+		assertEquals("legacy-secret", apiKeyStore.apiKey.value)
+		assertNull(dataStore.data.first()[stringPreferencesKey("api_key")])
+	}
+
+	@Test
+	fun `an emptied key clears the encrypted store as well`() = runTest {
+		val apiKeyStore = FakeApiKeyStore("secret")
+		val repository = createRepository(apiKeyStore)
+
+		repository.save(AppSettings(searchQuery = "marker"))
+
+		assertEquals("", apiKeyStore.apiKey.value)
+	}
+
+	@Test
 	fun `legacy wifiOnly false migrates to fresh-any rotation mode`() = runTest {
 		val dataStore = PreferenceDataStoreFactory.create(
 			scope = backgroundScope,
@@ -167,7 +210,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[booleanPreferencesKey("wifi_only")] = false }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(RotationMode.FRESH_ANY, repository.settings.first().rotationMode)
 	}
@@ -181,7 +224,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[booleanPreferencesKey("wifi_only")] = true }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(RotationMode.FRESH_WIFI, repository.settings.first().rotationMode)
 	}
@@ -198,7 +241,7 @@ class SettingsRepositoryTest {
 			prefs[stringPreferencesKey("rotation_mode")] = "PINNED_ONLY"
 		}
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 
 		assertEquals(RotationMode.PINNED_ONLY, repository.settings.first().rotationMode)
 	}
@@ -258,7 +301,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[stringSetPreferencesKey("pinned_ids")] = setOf("abc123") }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 		repository.unpin(wallhaven("abc123"))
 
 		assertTrue(repository.settings.first { it.pinnedIds.isEmpty() }.pinnedIds.isEmpty())
@@ -273,7 +316,7 @@ class SettingsRepositoryTest {
 
 		dataStore.edit { prefs -> prefs[stringSetPreferencesKey("blocked_ids")] = setOf("abc123") }
 
-		val repository = SettingsRepository(dataStore, FakeAppLogger())
+		val repository = SettingsRepository(dataStore, FakeApiKeyStore(), FakeAppLogger())
 		repository.unblock(wallhaven("abc123"))
 
 		assertTrue(repository.settings.first { it.blockedIds.isEmpty() }.blockedIds.isEmpty())
@@ -303,6 +346,7 @@ class SettingsRepositoryTest {
 		val firstScope = CoroutineScope(backgroundScope.coroutineContext + Job())
 		val firstProcess = SettingsRepository(
 			PreferenceDataStoreFactory.create(scope = firstScope, produceFile = { file }),
+			FakeApiKeyStore(),
 			FakeAppLogger()
 		)
 
@@ -312,6 +356,7 @@ class SettingsRepositoryTest {
 
 		val secondProcess = SettingsRepository(
 			PreferenceDataStoreFactory.create(scope = backgroundScope, produceFile = { file }),
+			FakeApiKeyStore(),
 			FakeAppLogger()
 		)
 

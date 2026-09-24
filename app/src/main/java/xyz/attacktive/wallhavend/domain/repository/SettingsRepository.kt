@@ -2,8 +2,10 @@ package xyz.attacktive.wallhavend.domain.repository
 
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.flow.onStart
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.booleanPreferencesKey
@@ -12,6 +14,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
+import xyz.attacktive.wallhavend.data.prefs.ApiKeyStore
 import xyz.attacktive.wallhavend.domain.model.AppSettings
 import xyz.attacktive.wallhavend.domain.model.RotationMode
 import xyz.attacktive.wallhavend.domain.model.WallpaperIdentity
@@ -25,7 +28,11 @@ import xyz.attacktive.wallhavend.domain.model.query.ToplistRange
 import xyz.attacktive.wallhavend.util.AppLogger
 
 @Singleton
-class SettingsRepository @Inject constructor(private val dataStore: DataStore<Preferences>, private val logger: AppLogger) {
+class SettingsRepository @Inject constructor(
+	private val dataStore: DataStore<Preferences>,
+	private val apiKeyStore: ApiKeyStore,
+	private val logger: AppLogger
+) {
 	private object Keys {
 		val ENABLED_SOURCES = stringSetPreferencesKey("enabled_sources")
 		val SEARCH_QUERY = stringPreferencesKey("search_query")
@@ -39,6 +46,8 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 		val WIFI_ONLY = booleanPreferencesKey("wifi_only")
 		val ROTATION_MODE = stringPreferencesKey("rotation_mode")
 		val POOL_SIZE = intPreferencesKey("pool_size")
+
+		// Retained read-only so installs predating the encrypted key store can migrate; never written anymore.
 		val API_KEY = stringPreferencesKey("api_key")
 		val AUTO_START_ON_BOOT = booleanPreferencesKey("auto_start_on_boot")
 		val FILTER_COLOR = stringPreferencesKey("filter_color")
@@ -53,8 +62,7 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 		val AUTO_UPDATE_ENABLED = booleanPreferencesKey("auto_update_enabled")
 	}
 
-	val settings = dataStore.data
-		.map { preferences -> AppSettings(
+	val settings = combine(dataStore.data, apiKeyStore.apiKey) { preferences, apiKey -> AppSettings(
 				enabledSources = (preferences[Keys.ENABLED_SOURCES] ?: setOf(WallpaperSource.WALLHAVEN.key))
 					.mapNotNull { WallpaperSource.fromKey(it) }
 					.toSet()
@@ -79,7 +87,7 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 					?.let { runCatching { RotationMode.valueOf(it) }.getOrNull() }
 					?: migrateRotationMode(preferences[Keys.WIFI_ONLY]),
 				poolSize = (preferences[Keys.POOL_SIZE] ?: 10).coerceAtLeast(1),
-				apiKey = preferences[Keys.API_KEY] ?: "",
+				apiKey = apiKey,
 				autoStartOnBoot = preferences[Keys.AUTO_START_ON_BOOT] ?: true,
 				filterColor = preferences[Keys.FILTER_COLOR] ?: "",
 				sorting = Sorting.fromApiValue(preferences[Keys.SORTING] ?: "random"),
@@ -89,8 +97,9 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 				pinnedIds = preferences[Keys.PINNED_IDS] ?: emptySet(),
 				autoUpdateEnabled = preferences[Keys.AUTO_UPDATE_ENABLED] ?: false
 			)
-			.also { logger.debug(TAG, "read: ${it.redactedForLog()}") }
 		}
+		.onStart { migrateLegacyApiKey() }
+		.onEach { logger.debug(TAG, "read: ${it.redactedForLog()}") }
 
 	suspend fun save(settings: AppSettings) {
 		logger.debug(TAG, "save: ${settings.redactedForLog()}")
@@ -116,7 +125,6 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 			preferences[Keys.WALLPAPER_TARGET] = settings.wallpaperTarget.name
 			preferences[Keys.ROTATION_MODE] = settings.rotationMode.name
 			preferences[Keys.POOL_SIZE] = settings.poolSize
-			preferences[Keys.API_KEY] = settings.apiKey
 			preferences[Keys.AUTO_START_ON_BOOT] = settings.autoStartOnBoot
 			preferences[Keys.FILTER_COLOR] = settings.filterColor
 			preferences[Keys.SORTING] = settings.sorting.apiValue
@@ -124,7 +132,25 @@ class SettingsRepository @Inject constructor(private val dataStore: DataStore<Pr
 			preferences[Keys.AVOID_BLURRY_WALLPAPERS] = settings.avoidBlurryWallpapers
 		}
 
+		// The key lives in the encrypted store, never in the backup-eligible DataStore.
+		apiKeyStore.set(settings.apiKey)
+
 		logger.debug(TAG, "save() completed")
+	}
+
+	/**
+	 * Moves the key out of the settings DataStore into the encrypted store once, for installs that
+	 * predate the move. Deleting the legacy key from the DataStore is what keeps it out of any
+	 * backup taken from that point on.
+	 */
+	private suspend fun migrateLegacyApiKey() {
+		val legacyApiKey = dataStore.data.first()[Keys.API_KEY] ?: return
+
+		if (legacyApiKey.isNotEmpty()) {
+			apiKeyStore.set(legacyApiKey)
+		}
+
+		dataStore.edit { preferences -> preferences.remove(Keys.API_KEY) }
 	}
 
 	/*
