@@ -1,0 +1,63 @@
+name: 'Personal Release'
+on:
+  workflow_dispatch:
+permissions:
+  contents: 'write'
+jobs:
+  build:
+    name: 'Build personal APK'
+    runs-on: 'ubuntu-latest'
+    steps:
+      - name: 'Checkout'
+        uses: 'actions/checkout@v4'
+
+      - name: 'Set up JDK'
+        uses: 'actions/setup-java@v4'
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: 'gradle'
+
+      - name: 'Decode keystore'
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: echo "$KEYSTORE_BASE64" | base64 --decode > release.keystore
+
+      - name: 'Test and build release APK'
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+        run: './gradlew test assembleRelease'
+
+      - name: 'Rename and checksum'
+        id: package
+        run: |
+          VERSION=$(grep -oP 'versionName = "\K[^"]+' app/build.gradle.kts)
+          NAME="Wallhavender-${VERSION}-${GITHUB_RUN_NUMBER}"
+          mv app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/${NAME}.apk"
+          sha256sum "app/build/outputs/apk/release/${NAME}.apk" | tee "app/build/outputs/apk/release/${NAME}.apk.sha256"
+          echo "NAME=${NAME}" >> "$GITHUB_OUTPUT"
+
+      - name: 'Upload artifact'
+        uses: 'actions/upload-artifact@v4'
+        with:
+          name: ${{ steps.package.outputs.NAME }}
+          path: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/*.sha256
+          retention-days: 30
+
+      - name: 'Create release'
+        uses: 'softprops/action-gh-release@v2'
+        with:
+          tag_name: 'personal-${{ steps.package.outputs.NAME }}'
+          name: 'Wallhavender personal build ${{ steps.package.outputs.NAME }}'
+          body: |
+            Personal build of Wallhavender, signed with the personal release key.
+
+            Application id: `com.wallhavender.me` — it installs next to the Play Store version.
+
+            Install with `adb install` or from the phone's file manager, then start from a clean
+            state (first install). The SHA-256 checksum is attached next to the APK.
+          files: |
+            app/build/outputs/apk/release/*.apk
+            app/build/outputs/apk/release/*.sha256
