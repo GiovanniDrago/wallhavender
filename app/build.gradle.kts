@@ -24,11 +24,11 @@ android {
 	compileSdk = 37
 
 	defaultConfig {
-		applicationId = "xyz.attacktive.wallhavend"
+		applicationId = "com.wallhavender.me"
 		minSdk = 26
 		targetSdk = 37
 		versionCode = 53
-		versionName = "2.2.3"
+		versionName = "2.2.3-personal"
 		testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 	}
 

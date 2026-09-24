@@ -11,3 +11,6 @@ local.properties
 .superpowers/
 
 release.keystore
+key.properties
+*.jks
+*.keystore
