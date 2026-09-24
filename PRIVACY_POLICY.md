@@ -6,15 +6,15 @@
 
 All data is stored **locally on your device only** and is never transmitted to any server operated by this app.
 
-| Data                                                               | Purpose                                                     | Where stored               |
-|--------------------------------------------------------------------|-------------------------------------------------------------|----------------------------|
-| Wallhaven API key (optional)                                       | Authenticate requests to the Wallhaven API for NSFW content | Device storage (DataStore) |
-| Search preferences (query, categories, purity, aspect ratio, etc.) | Remember your wallpaper settings                            | Device storage (DataStore) |
-| Downloaded wallpaper images                                        | Display as device wallpaper                                 | Device internal storage    |
+| Data                                                               | Purpose                                                     | Where stored                                                                    |
+|--------------------------------------------------------------------|-------------------------------------------------------------|---------------------------------------------------------------------------------|
+| Wallhaven API key (optional)                                       | Authenticate requests to the Wallhaven API for NSFW content | Encrypted with an Android Keystore key; excluded from cloud backup and transfer |
+| Search preferences (query, categories, purity, aspect ratio, etc.) | Remember your wallpaper settings                            | Device storage (DataStore)                                                      |
+| Downloaded wallpaper images                                        | Display as device wallpaper                                 | Device internal storage                                                         |
 
 ## Third-party services
 
-The app communicates with **[Wallhaven](https://wallhaven.cc)** to fetch wallpaper images based on your configured search settings. If you provide an API key, it is included in requests to Wallhaven. Wallhaven's own privacy policy applies to those requests.
+The app communicates with **[Wallhaven](https://wallhaven.cc)** to fetch wallpaper images based on your configured search settings. If you provide an API key, it is sent in the `X-API-Key` request header to Wallhaven. Wallhaven's own privacy policy applies to those requests.
 
 No other third-party analytics, advertising, or tracking services are used.
 

@@ -13,10 +13,13 @@ import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dagger.multibindings.IntoSet
 import okhttp3.OkHttpClient
+import xyz.attacktive.wallhavend.data.prefs.ApiKeyStore
+import xyz.attacktive.wallhavend.data.prefs.SecureApiKeyStore
 import xyz.attacktive.wallhavend.domain.repository.OpenverseProvider
 import xyz.attacktive.wallhavend.domain.repository.WallhavenProvider
 import xyz.attacktive.wallhavend.domain.repository.WallpaperProvider
 import xyz.attacktive.wallhavend.domain.service.WallpaperFileManager
+import xyz.attacktive.wallhavend.util.AppLogger
 
 private val Context.dataStore by preferencesDataStore(name = "wallhavend_settings")
 
@@ -26,6 +29,10 @@ object RepositoryModule {
 	@Provides
 	@Singleton
 	fun provideDataStore(@ApplicationContext context: Context): DataStore<Preferences> = context.dataStore
+
+	@Provides
+	@Singleton
+	fun provideApiKeyStore(@ApplicationContext context: Context, appLogger: AppLogger): ApiKeyStore = SecureApiKeyStore(context, appLogger)
 
 	@Provides
 	@Singleton

@@ -43,6 +43,8 @@ object NetworkModule {
 				val basicLoggingInterceptor = HttpLoggingInterceptor()
 					.apply {
 						level = HttpLoggingInterceptor.Level.BASIC
+						// The key travels in a header; redact it in case a future level logs headers too.
+						redactHeader("X-API-Key")
 					}
 
 				addInterceptor(basicLoggingInterceptor)
